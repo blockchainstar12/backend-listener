@@ -1,7 +1,12 @@
 const { ethers } = require("ethers");
+require('dotenv').config();
+
+const { ALCHEMY_API_KEY, SEPOLIA_CONTRACT_ADDRESS } = process.env;
+
+const sepoliaUrl = `https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_API_KEY}`;
 
 const localhost_url = "http://127.0.0.1:8545/"; // Your Localhost URL
-const provider = new ethers.JsonRpcProvider(localhost_url)
+const provider = new ethers.JsonRpcProvider(sepoliaUrl); // Change to localhost_url for local testing
 
 const ABI = [
     {
@@ -144,11 +149,9 @@ const ABI = [
     }
 ];
 
-const Contract_Address = "0x5FbDB2315678afecb367f032d93F642f64180aa3"; // Your Deployed Contract Address
+const contract = new ethers.Contract(SEPOLIA_CONTRACT_ADDRESS, ABI, provider);
 
-const contract = new ethers.Contract(Contract_Address, ABI, provider);
-
-console.log(`Listening for events on contract ${Contract_Address}...`);
+console.log(`Listening for events on contract ${SEPOLIA_CONTRACT_ADDRESS}...`); //  use LOCAL_CONTRACT_ADDRESS for local testing (replace SEPOLIA_CONTRACT_ADDRESS => LOCAL_CONTRACT_ADDRESS EVERYWHERE)
 
 contract.on("MintRequest", (requester, tokenId, tokenURI, extension, event) => {
     console.log("MintRequest Event Detected:");
