@@ -1,12 +1,14 @@
 const { ethers } = require("ethers");
+const { CosmWasmClient, SigningCosmWasmClient } = require("@cosmjs/cosmwasm-stargate");
+const { DirectSecp256k1HdWallet } = require("@cosmjs/proto-signing");
 require('dotenv').config();
 
-const { ALCHEMY_API_KEY, SEPOLIA_CONTRACT_ADDRESS, LOCAL_CONTRACT_ADDRESS } = process.env;
-
-const sepoliaUrl = `https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_API_KEY}`;
-const localhost_url = "http://127.0.0.1:8545/"; // Your Localhost URL
-
-const provider = new ethers.JsonRpcProvider(sepoliaUrl); // Change to localhost_url for local testing
+const { 
+  LOCAL_CONTRACT_ADDRESS, 
+  COSMWASM_CONTRACT_ADDRESS, 
+  NIBIRU_RPC, 
+  NIBIRU_MNEMONIC 
+} = process.env;
 
 const ABI = [
   {
@@ -243,65 +245,89 @@ const ABI = [
   }
 ];
 
-const contract = new ethers.Contract(SEPOLIA_CONTRACT_ADDRESS, ABI, provider);
+// ETH setup
+const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545/");
+const contract = new ethers.Contract(LOCAL_CONTRACT_ADDRESS, ABI, provider);
 
-console.log(`Listening for events on contract ${SEPOLIA_CONTRACT_ADDRESS}...`); //  use LOCAL_CONTRACT_ADDRESS for local testing (replace SEPOLIA_CONTRACT_ADDRESS => LOCAL_CONTRACT_ADDRESS EVERYWHERE)
 
-contract.on("MintRequest", (requester, tokenId, tokenURI, extension, event) => {
-    console.log("MintRequest Event Detected:");
-    console.log("Requester:", requester);
-    console.log("Token ID:", tokenId);
-    console.log("Token URI:", tokenURI);
-    console.log("Extension:", ethers.toUtf8String(extension));
-    console.log("To:", event.log.address);
-    console.log("Transaction Hash:", event.log.transactionHash);
+// Nibiru setup
+async function initNibiruClient() {
+  const wallet = await DirectSecp256k1HdWallet.fromMnemonic(
+    NIBIRU_MNEMONIC,
+    { prefix: "nibi" }
+  );
   
-        // Forward to CosmWasm
-      //   await cosmwasmClient.execute(
-      //     COSMWASM_CONTRACT_ADDRESS,
-      //     "mint",
-      //     {
-      //         token_id: tokenId,
-      //         owner: requester,
-      //         token_uri: tokenURI,
-      //         extension: extension
-      //     }
-      // );
-})
+  const [account] = await wallet.getAccounts();
+  
+  const client = await SigningCosmWasmClient.connect(NIBIRU_RPC);
+  const signer = await SigningCosmWasmClient.connectWithSigner(
+    NIBIRU_RPC,
+    wallet,
+    { prefix: "nibi" }
+  );
 
-contract.on("TransferRequest", async (from, to, tokenId, event) => {
-  console.log("TransferRequest Event Detected:");
-  console.log("From:", from);
-  console.log("To:", to);
-  console.log("Token ID:", tokenId);
-  console.log("Transaction Hash:", event.log.transactionHash);
+  return { signer, account };
+}
 
-    //   // Forward to CosmWasm
-    //   await cosmwasmClient.execute(
-    //     COSMWASM_CONTRACT_ADDRESS,
-    //     "transfer_nft",
-    //     {
-    //         recipient: to,
-    //         token_id: tokenId,
-    //         original_owner: from
-    //     }
-    // );
-});
+async function mintOnNibiru(signer, account, data) {
+  const { requester, tokenId, tokenURI, extension } = data;
+  
+  const msg = {
+    mint: {
+      token_id: tokenId,
+      owner: requester,
+      token_uri: tokenURI,
+      extension: ethers.toUtf8String(extension)
+    }
+  };
 
-contract.on("BurnRequest", async (requester, tokenId, event) => {
-  console.log("BurnRequest Event Detected:");
-  console.log("Requester:", requester);
-  console.log("Token ID:", tokenId);
-  console.log("Transaction Hash:", event.log.transactionHash);
+  const fee = {
+    amount: [{ amount: "5000", denom: "unibi" }],
+    gas: "200000",
+  };
 
+  try {
+    const result = await signer.execute(
+      account.address,
+      COSMWASM_CONTRACT_ADDRESS,
+      msg,
+      fee
+    );
+    console.log("Nibiru mint success:", result.transactionHash);
+    return result;
+  } catch (error) {
+    console.error("Nibiru mint failed:", error.message);
+    return null;
+  }
+}
 
-    //   // Forward to CosmWasm
-    //   await cosmwasmClient.execute(
-    //     COSMWASM_CONTRACT_ADDRESS,
-    //     "burn",
-    //     {
-    //         token_id: tokenId,
-    //         original_owner: requester
-    //     }
-    // );
-});
+async function main() {
+  try {
+    console.log("Initializing bridges...");
+    const { signer, account } = await initNibiruClient();
+    
+    console.log("Listening for ETH events...");
+    contract.on("MintRequest", async (requester, tokenId, tokenURI, extension) => {
+      console.log("ETH event received:", { requester, tokenId });
+      
+      await mintOnNibiru(signer, account, {
+        requester,
+        tokenId,
+        tokenURI,
+        extension
+      });
+    });
+
+    // Keep alive
+    process.on('SIGINT', () => {
+      console.log('Shutting down...');
+      process.exit();
+    });
+
+  } catch (error) {
+    console.error("Fatal error:", error.message);
+    process.exit(1);
+  }
+}
+
+main().catch(console.error);
