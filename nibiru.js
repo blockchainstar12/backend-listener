@@ -355,6 +355,56 @@ class BridgeService {
     }
   }
 
+  async executeTransfer(to, tokenId) {
+    try {
+      console.log("\n=== Starting Transfer Execution ===");
+      console.log("To:", to);
+      console.log("Token ID:", tokenId);
+
+      // Initialize signer and clients
+      console.log("Initializing signer with mnemonic...");
+      const signer = await newSignerFromMnemonic(process.env.NIBIRU_MNEMONIC);
+
+      console.log("Connecting to Nibiru network...");
+      console.log("RPC Endpoint:", CHAIN.endptTm);
+      const querier = await NibiruQuerier.connect(CHAIN.endptTm);
+
+      console.log("Setting up transaction client...");
+      const txClient = await NibiruTxClient.connectWithSigner(
+        CHAIN.endptTm,
+        signer
+      );
+
+      console.log("Getting signer account...");
+      const [{ address }] = await signer.getAccounts();
+      console.log("Signer address:", address);
+
+      // Prepare Transfer message
+      const transferMsg = {
+        transfer: {
+          recipient: to,
+          token_id: tokenId,
+        }
+      };
+      console.log("Transfer message:", transferMsg);
+
+      // Execute transfer transaction
+      console.log("Executing transfer transaction...");
+      const txResp = await txClient.sendTokens(
+        address,
+        process.env.COSMWASM_CONTRACT_ADDRESS,
+        [{ amount: "1", denom: "unibi" }],
+        5000,
+        transferMsg
+      );
+
+      console.log("Transaction response:", txResp);
+      return txResp;
+    } catch (error) {
+      console.error("Transfer failed:", error);
+      throw error;
+    }    
+}
 
   async start() {
     const contract = new ethers.Contract(
@@ -394,6 +444,22 @@ class BridgeService {
       }
       catch (error) {
         console.error("Failed to process burn request:", error);
+      }
+    });
+
+    contract.on("TransferRequest", async (from, to, tokenId, event) => {
+      try {
+        console.log("Transfer Request Event Detected:", {
+          blockNumber: event.log.blockNumber,
+          transactionHash: event.log.transactionHash,
+          from,
+          to,
+          tokenId
+        });
+        await this.executeTransfer(to, tokenId);
+      }
+      catch (error) {
+        console.error("Failed to process transfer request:", error);
       }
     });
   }
