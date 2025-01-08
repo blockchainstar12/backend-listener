@@ -253,6 +253,8 @@ class BridgeService {
 
   async executeMint(tokenId, tokenURI, extension) {
     try {
+      console.log("\n=== Starting Request Mint Execution ===");
+
       // Initialize signer and clients
       console.log("Initializing signer with mnemonic...");
       const signer = await newSignerFromMnemonic(process.env.NIBIRU_MNEMONIC);
@@ -304,6 +306,56 @@ class BridgeService {
     }
   }
 
+  async executeBurn(tokenId) {
+    try {
+      console.log("\n=== Starting Burn Execution ===");
+      console.log("Token ID:", tokenId);
+
+      // Initialize signer and clients
+      console.log("Initializing signer with mnemonic...");
+      const signer = await newSignerFromMnemonic(process.env.NIBIRU_MNEMONIC);
+
+      console.log("Connecting to Nibiru network...");
+      console.log("RPC Endpoint:", CHAIN.endptTm);
+      const querier = await NibiruQuerier.connect(CHAIN.endptTm);
+
+      console.log("Setting up transaction client...");
+      const txClient = await NibiruTxClient.connectWithSigner(
+        CHAIN.endptTm,
+        signer
+      );
+
+      console.log("Getting signer account...");
+      const [{ address }] = await signer.getAccounts();
+      console.log("Signer address:", address);
+
+      // Prepare Burn message
+      const burnMsg = {
+        burn: {
+          token_id: tokenId,
+        }
+      };
+      console.log("Burn message:", burnMsg);
+
+      // Execute burn transaction
+      console.log("Executing burn transaction...");
+      const txResp = await txClient.sendTokens(
+        address,
+        process.env.COSMWASM_CONTRACT_ADDRESS,
+        [{ amount: "1", denom: "unibi" }],
+        5000,
+        burnMsg
+      );
+
+      console.log("Transaction response:", txResp);
+      return txResp;
+    } catch (error) {
+      console.error("Burn failed:", error);
+      throw error;
+    }
+  }
+
+
   async start() {
     const contract = new ethers.Contract(
       process.env.SEPOLIA_CONTRACT_ADDRESS,  // Use LOCAL_CONTRACT_ADDRESS for local testing
@@ -327,6 +379,21 @@ class BridgeService {
         await this.executeMint(tokenId, tokenURI, extension);
       } catch (error) {
         console.error("Failed to process mint request:", error);
+      }
+    });
+
+    contract.on("BurnRequest", async (requester, tokenId, event) => {
+      try {
+        console.log("Burn Request Event Detected:", {
+          blockNumber: event.log.blockNumber,
+          transactionHash: event.log.transactionHash,
+          requester,
+          tokenId
+        });
+        await this.executeBurn(tokenId, requester);
+      }
+      catch (error) {
+        console.error("Failed to process burn request:", error);
       }
     });
   }
