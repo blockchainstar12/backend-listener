@@ -276,25 +276,31 @@ class BridgeService {
       // Check client methods
       console.log("Available txClient methods:", Object.keys(txClient));
 
-      // Prepare message
+      // Prepare mint message
       const mintMsg = {
         mint: {
           token_id: tokenId,
           owner: address,
-          token_uri: tokenURI,
-          extension: ethers.toUtf8String(extension)
+          token_uri: tokenURI || null,
+          extension: {
+            name: null,
+            description: null,
+            image: [],
+            attributes: [],
+            external_url: tokenURI
+          }
         }
       };
-      console.log("Mint message:", mintMsg);
+
+      console.log("Mint message:", JSON.stringify(mintMsg));
 
       // Execute transaction using correct method
       console.log("Executing transaction...");
-      const txResp = await txClient.sendTokens(
+      const txResp = await txClient.wasmClient.execute(
         address,
         process.env.COSMWASM_CONTRACT_ADDRESS,
-        [{ amount: "1", denom: "unibi" }],
-        5000,
-        mintMsg
+        mintMsg,
+        "auto"
       );
 
       console.log("Transaction response:", txResp);
