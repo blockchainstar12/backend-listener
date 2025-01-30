@@ -1,5 +1,5 @@
 const { ethers } = require("ethers");
-const { NibiruTxClient, newSignerFromMnemonic, Testnet, NibiruQuerier } = require("@nibiruchain/nibijs");
+const { NibiruTxClient, newSignerFromMnemonic, Testnet, NibiruQuerier, BECH32_PREFIX } = require("@nibiruchain/nibijs");
 const { Transaction } = require("ethers");
 require('dotenv').config();
 
@@ -341,16 +341,15 @@ class BridgeService {
           token_id: tokenId,
         }
       };
-      console.log("Burn message:", burnMsg);
+      console.log("Burn message:", JSON.stringify(burnMsg));
 
       // Execute burn transaction
       console.log("Executing burn transaction...");
-      const txResp = await txClient.sendTokens(
+      const txResp = await txClient.wasmClient.execute(
         address,
         process.env.COSMWASM_CONTRACT_ADDRESS,
-        [{ amount: "1", denom: "unibi" }],
-        5000,
-        burnMsg
+        burnMsg,
+        "auto"
       );
 
       console.log("Transaction response:", txResp);
@@ -385,23 +384,41 @@ class BridgeService {
       const [{ address }] = await signer.getAccounts();
       console.log("Signer address:", address);
 
+      // const tokenQuery = {
+      //   all_nft_info: {
+      //     token_id: tokenId.toString(),
+      //     include_expired: false  // Filter out expired approvals
+      //   }
+      // };
+      // console.log("Token query:", JSON.stringify(tokenQuery));
+
+      // const tokenInfo = await txClient.wasmClient.queryContractSmart(
+      //   process.env.COSMWASM_CONTRACT_ADDRESS,
+      //   tokenQuery
+      // );
+
+      // console.log("Token info:", tokenInfo);
+
+      // if (!tokenInfo) {
+      //   throw new Error(`Token ${tokenId} not found`);
+      // }
+
       // Prepare Transfer message
       const transferMsg = {
-        transfer: {
+        transfer_nft: {
           recipient: to,
           token_id: tokenId,
         }
       };
-      console.log("Transfer message:", transferMsg);
+      console.log("Transfer message:", JSON.stringify(transferMsg));
 
       // Execute transfer transaction
       console.log("Executing transfer transaction...");
-      const txResp = await txClient.sendTokens(
+      const txResp = await txClient.wasmClient.execute(
         address,
         process.env.COSMWASM_CONTRACT_ADDRESS,
-        [{ amount: "1", denom: "unibi" }],
-        5000,
-        transferMsg
+        transferMsg,
+        "auto"
       );
 
       console.log("Transaction response:", txResp);
