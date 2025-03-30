@@ -11,7 +11,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@nibiruchain/nibijs": "^6.0.1",
+    "@nibiruchain/nibijs": "^6.0.2",
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
     "ethers": "^6.13.4",
