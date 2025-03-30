@@ -79,6 +79,56 @@ const ABI = [
       },
       {
         "indexed": false,
+        "internalType": "bytes",
+        "name": "extension",
+        "type": "bytes"
+      }
+    ],
+    "name": "ExtensionUpdateRequest",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "requester",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "tokenId",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "tokenURI",
+        "type": "string"
+      }
+    ],
+    "name": "MetadataUpdateRequest",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "requester",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "tokenId",
+        "type": "string"
+      },
+      {
+        "indexed": false,
         "internalType": "string",
         "name": "chainType",
         "type": "string"
@@ -237,6 +287,42 @@ const ABI = [
   {
     "inputs": [
       {
+        "internalType": "string",
+        "name": "tokenId",
+        "type": "string"
+      },
+      {
+        "internalType": "bytes",
+        "name": "extension",
+        "type": "bytes"
+      }
+    ],
+    "name": "requestSetExtension",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "tokenId",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "tokenURI",
+        "type": "string"
+      }
+    ],
+    "name": "requestSetMetadata",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "to",
         "type": "address"
@@ -265,7 +351,7 @@ const ABI = [
     "stateMutability": "nonpayable",
     "type": "function"
   }
-]
+];
 
 // Define testnet chain
 const CHAIN = Testnet(2); // nibiru-testnet-1
@@ -309,6 +395,18 @@ class BridgeService {
     }
 
     return { signer, querier, txClient, address };
+  }
+
+  async decodeExtensionData(extension) {
+    try {
+      // Convert the bytes directly to UTF-8 string
+      const jsonString = ethers.toUtf8String(extension);
+      // Parse the JSON string
+      return JSON.parse(jsonString);
+    } catch (error) {
+      console.log("Error decoding extension data:", error.message);
+      return {};
+    }
   }
 
   // Helper to get token information
@@ -384,28 +482,34 @@ class BridgeService {
       const { querier, txClient, address } = await this.initializeClients();
   
       // Parse metadata
-      let metadata = {};
-      if (extension && extension.length > 0) {
-        try {
-          const decodedHex = ethers.toUtf8String(extension.slice(64));
-          const jsonStart = decodedHex.indexOf('{');
-          const jsonEnd = decodedHex.lastIndexOf('}') + 1;
-          
-          if (jsonStart >= 0 && jsonEnd > jsonStart) {
-            const jsonStr = decodedHex.substring(jsonStart, jsonEnd);
-            const parsedData = JSON.parse(jsonStr);
-            metadata = parsedData;
-            console.log("Successfully parsed extension metadata:", metadata);
-          }
-        } catch (e) {
-          console.log("Could not parse extension metadata:", e.message);
-        }
-      }
+      const metadata = await this.decodeExtensionData(extension);
+      console.log("Decoded extension metadata:", metadata);
   
-      // Try different mint message formats
+      // Format the mint message according to the contract's expected structure
       const mintFormats = [
         {
           name: "standard_mint",
+          msg: {
+            extension: {
+              msg: {
+                mint: {
+                  token_id: tokenId,
+                  owner: {
+                    chain_type: chainType,
+                    address: ownerAddress
+                  },
+                  metadata: {
+                    token_uri: tokenURI || "",
+                    ...metadata
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Fallback format without extension wrapper
+        {
+          name: "simple_mint",
           msg: {
             mint: {
               token_id: tokenId,
@@ -413,18 +517,10 @@ class BridgeService {
                 chain_type: chainType,
                 address: ownerAddress
               },
-              token_uri: tokenURI || "",
-              extension: metadata
-            }
-          }
-        },
-        {
-          name: "simple_mint",
-          msg: {
-            mint: {
-              token_id: tokenId,
-              owner: ownerAddress,
-              token_uri: tokenURI || ""
+              metadata: {
+                token_uri: tokenURI || "",
+                ...metadata
+              }
             }
           }
         }
@@ -732,6 +828,49 @@ class BridgeService {
     }
   }
 
+  async executeSetExtension(tokenId, extension, requester) {
+    try {
+      console.log("\n=== Starting Extension Update Execution ===");
+      const { querier, txClient, address } = await this.initializeClients();
+  
+      // Parse metadata - use the same approach as mint
+      const extensionData = await this.decodeExtensionData(extension);
+      console.log("Decoded extension data:", extensionData);
+  
+      // Use multiple formats like we did for mint
+      const extensionFormats = [
+        {
+          name: "standard_extension",
+          msg: {
+            extension: {
+              msg: {
+                set_extension: {
+                  token_id: tokenId,
+                  extension: extensionData
+                }
+              }
+            }
+          }
+        },
+        // Fallback without wrapper
+        {
+          name: "simple_extension",
+          msg: {
+            set_extension: {
+              token_id: tokenId,
+              extension: extensionData
+            }
+          }
+        }
+      ];
+  
+      return await this.tryExecuteWithFormats(txClient, address, extensionFormats);
+    } catch (error) {
+      console.error("Extension update failed:", error);
+      throw error;
+    }
+  }
+
   async setupEventListener(contract, eventName, handler) {
     try {
       contract.on(eventName, handler);
@@ -860,8 +999,52 @@ class BridgeService {
           }
         }
       );
+
+      // Add this in your event listeners setup
+      const metadataSuccess = await this.setupEventListener(
+        contract,
+        "MetadataUpdateRequest",
+        async (requester, tokenId, tokenURI, event) => {
+            try {
+                console.log("\n📣 MetadataUpdateRequest Event Detected:", {
+                    blockNumber: event.log.blockNumber,
+                    transactionHash: event.log.transactionHash,
+                    requester,
+                    tokenId,
+                    tokenURI
+                });
+                
+                await this.executeSetMetadata(tokenId, tokenURI, requester);
+            } catch (error) {
+                console.error("Failed to process metadata update request:", error);
+            }
+        }
+      );
+
+      // Add to event listeners
+      const extensionSuccess = await this.setupEventListener(
+        contract,
+        "ExtensionUpdateRequest",
+        async (requester, tokenId, extension, event) => {
+            try {
+                console.log("Extension Update Request Event Detected:", {
+                    blockNumber: event.log.blockNumber,
+                    transactionHash: event.log.transactionHash,
+                    requester,
+                    tokenId,
+                    extension: extension && typeof extension === 'object' ? 
+                        (extension.length > 0 ? ethers.toUtf8String(extension) : null) : 
+                        null
+                });
+                
+                await this.executeSetExtension(tokenId, extension, requester);
+            } catch (error) {
+                console.error("Failed to process extension update request:", error);
+            }
+        }
+      );
       
-      if (!mintSuccess || !burnSuccess || !transferSuccess) {
+      if (!mintSuccess || !burnSuccess || !transferSuccess || !metadataSuccess || !extensionSuccess) {
         console.warn("⚠️ Some event listeners failed to initialize");
       }
       
